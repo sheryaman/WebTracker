@@ -1,0 +1,78 @@
+services:
+  postgres-db:
+   image: postgres:15-alpine
+   container_name: monitor_postgres
+   environment:
+     POSTGRES_USER: ${POSTGRES_USER}
+     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+     POSTGRES_DB: ${POSTGRES_DB}
+   ports:
+    - "5432:5432"
+   volumes:
+   - postgres_data:/var/lib/postgresql/data
+  api:
+   build: ./backend
+   container_name: monitor_api
+   ports:
+   - "${API_PORT}:8000"
+   environment:
+   - POSTGRES_SERVER=${POSTGRES_SERVER}
+   - POSTGRES_USER=${POSTGRES_USER}
+   - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+   - POSTGRES_DB=${POSTGRES_DB}
+   depends_on:
+    - postgres-db
+  redis-queue:
+   image: redis:7-alpine
+   container_name: monitor_redis
+   ports:
+   - "${REDIS_PORT}:6379"
+   depends_on:
+    - postgres-db
+  worker:
+   build: ./backend
+   container_name: monitor_worker
+   command: ["celery", "-A", "app.tasks", "worker", "--loglevel=info"]
+   environment:
+    - POSTGRES_SERVER=${POSTGRES_SERVER}
+    - POSTGRES_USER=${POSTGRES_USER}
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    - POSTGRES_DB=${POSTGRES_DB}
+    - PYTHONPATH=/app
+   depends_on:
+    - postgres-db
+    - redis-queue
+  celery-beat:
+   build: ./backend
+   container_name: monitor_beat
+   command: ["celery", "-A", "app.tasks", "beat" , "--loglevel=info"] 
+   environment:
+    - POSTGRES_SERVER=${POSTGRES_SERVER}
+    - POSTGRES_USER=${POSTGRES_USER}
+    - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    - POSTGRES_DB=${POSTGRES_DB}
+    - PYTHONPATH=/app
+   depends_on:
+    - postgres-db
+    - redis-queue
+  prometheus:
+   image: prom/prometheus:v2.45.0
+   container_name: monitor_prometheus
+   volumes:
+    - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+   ports:
+   - "9090:9090"
+   depends_on:
+    - api
+  grafana:
+   image: grafana/grafana:10.2.0
+   container_name: monitor_grafana
+   ports:
+   - "3000:3000"
+   environment:
+   - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+   depends_on:
+    - prometheus
+
+volumes:
+  postgres_data:
